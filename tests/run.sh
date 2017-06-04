@@ -214,7 +214,7 @@ create_alarm() {
 
 start_monitor() {
     pgrep -f "python monitor.py" && return 0
-    sudo -E python monitor.py "$COMPUTE_HOST" "$COMPUTE_IP" "$INSPECTOR_TYPE" \
+    sudo -E python monitor.py --compute-host "$COMPUTE_HOST" --compute-ip "$COMPUTE_IP" --inspector-type "$INSPECTOR_TYPE" \
         > monitor.log 2>&1 &
 }
 

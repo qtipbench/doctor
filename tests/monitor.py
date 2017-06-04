@@ -7,24 +7,24 @@
 # http://www.apache.org/licenses/LICENSE-2.0
 ##############################################################################
 
-import argparse
 from datetime import datetime
 import json
 import logger as doctor_log
+import os
 import requests
 import socket
+import sys
 import time
 
 from keystoneauth1 import session
 from congressclient.v1 import client
+from oslo_config import cfg
 
 import identity_auth
 
 # NOTE: icmp message with all zero data (checksum = 0xf7ff)
 #       see https://tools.ietf.org/html/rfc792
 ICMP_ECHO_MESSAGE = '\x08\x00\xf7\xff\x00\x00\x00\x00'
-
-SUPPORTED_INSPECTOR_TYPES = ['sample', 'congress']
 
 LOG = doctor_log.Logger('doctor_monitor').getLogger()
 
@@ -35,16 +35,13 @@ class DoctorMonitorSample(object):
     timeout = 0.1  # second
     event_type = "compute.host.down"
 
-    def __init__(self, args):
-        if args.inspector_type not in SUPPORTED_INSPECTOR_TYPES:
-            raise Exception("Inspector type '%s' not supported", args.inspector_type)
-
-        self.hostname = args.hostname
-        self.inspector_type = args.inspector_type
-        self.ip_addr = args.ip or socket.gethostbyname(self.hostname)
+    def __init__(self, conf):
+        self.hostname = conf.hostname
+        self.inspector_type = conf.inspector_type
+        self.ip_addr = conf.ip or socket.gethostbyname(self.hostname)
 
         if self.inspector_type == 'sample':
-            self.inspector_url = 'http://127.0.0.1:12345/events'
+            self.inspector_url = conf.inspector_url
         elif self.inspector_type == 'congress':
             auth=identity_auth.get_identity_auth()
             self.session=session.Session(auth=auth)
@@ -101,24 +98,28 @@ class DoctorMonitorSample(object):
             }
             requests.put(self.inspector_url, data=data, headers=headers)
 
+SUPPORTED_INSPECTOR_TYPES = ['sample', 'congress']
 
-def get_args():
-    parser = argparse.ArgumentParser(description='Doctor Sample Monitor')
-    parser.add_argument('hostname', metavar='HOSTNAME', type=str, nargs='?',
-                        help='a hostname to monitor connectivity')
-    parser.add_argument('ip', metavar='IP', type=str, nargs='?',
-                        help='an IP address to monitor connectivity')
-    parser.add_argument('inspector_type', metavar='INSPECTOR_TYPE', type=str, nargs='?',
-                        help='inspector to report',
-                        default='sample')
-    return parser.parse_args()
+OPTS = [
+    cfg.StrOpt('hostname',
+               help='a hostname to monitor connectivity'),
+    cfg.StrOpt('ip',
+               help='an IP address to monitor connectivity'),
+    cfg.StrOpt('inspector-type',
+               default=os.getenv('INSPECTOR_TYPE', 'sample'),
+               choices=SUPPORTED_INSPECTOR_TYPES,
+               help='supported: {}'.format(', '.join(SUPPORTED_INSPECTOR_TYPES))),
+    cfg.StrOpt('inspector-url',
+               default=os.getenv('INSPECTOR_URL', 'http://127.0.0.1:12345/events'),
+               help='endpoint to report fault, e.g. "http://127.0.0.1:12345/events"')]
 
 
 def main():
-    args = get_args()
-    monitor = DoctorMonitorSample(args)
+    conf = cfg.ConfigOpts()
+    conf.register_cli_opts(OPTS)
+    conf(sys.argv[1:], default_config_files=['doctor.conf'])
+    monitor = DoctorMonitorSample(conf)
     monitor.start_loop()
-
 
 if __name__ == '__main__':
     main()
