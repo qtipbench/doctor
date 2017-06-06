@@ -22,6 +22,7 @@ from oslo_config import cfg
 
 from osprofiler import initializer as osprofiler_initializer
 from osprofiler import opts as osprofiler_opts
+from osprofiler import web as osprofiler_web
 from osprofiler import profiler
 
 import identity_auth
@@ -71,6 +72,7 @@ class DoctorMonitorSample(object):
                 data = sock.recv(4096)
             except socket.timeout:
                 LOG.info("doctor monitor detected at %s" % time.time())
+
                 self.report_error()
                 LOG.info("ping timeout, quit monitoring...")
                 if self.conf.profiler.enabled:
@@ -80,6 +82,7 @@ class DoctorMonitorSample(object):
                 return
             time.sleep(self.interval)
 
+    @profiler.trace('report')
     def report_error(self):
         payload = [
             {
@@ -96,19 +99,20 @@ class DoctorMonitorSample(object):
         ]
         data = json.dumps(payload)
 
-        profiler.init('doctor')
-        profiler.start('report')
+        headers = {
+            'Content-Type': 'application/json',
+            'Accept': 'application/json',
+        }
+        if osprofiler_web:
+            headers.update(osprofiler_web.get_trace_id_headers())
+
         if self.inspector_type == 'sample':
-            headers = {'content-type': 'application/json'}
-            requests.post(self.inspector_url, data=data, headers=headers)
+            requests.post(self.inspector_url, data=data, headers=headers, proxies={'http': None, 'https': None})
         elif self.inspector_type == 'congress':
-            headers = {
-                'Content-Type': 'application/json',
-                'Accept': 'application/json',
-                'X-Auth-Token':self.session.get_token(),
-            }
+            headers.update({
+                'X-Auth-Token':self.session.get_token()
+            })
             requests.put(self.inspector_url, data=data, headers=headers)
-        profiler.stop()
 
 SUPPORTED_INSPECTOR_TYPES = ['sample', 'congress']
 
@@ -138,6 +142,7 @@ def main():
                                               project='doctor',
                                               service='monitor',
                                               host='tester')
+        profiler.init(conf.profiler.hmac_keys)
 
     monitor = DoctorMonitorSample(conf)
     monitor.start_loop()
