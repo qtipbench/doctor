@@ -61,7 +61,7 @@ class DoctorMonitorSample(object):
                                   (congress_endpoint, doctor_ds['id']))
 
     def start_loop(self):
-        LOG.debug("start ping to host %(h)s (ip=%(i)s)" % {'h': self.hostname,
+        LOG.info("start ping to host %(h)s (ip=%(i)s)" % {'h': self.hostname,
                                                        'i': self.ip_addr})
         sock = socket.socket(socket.AF_INET, socket.SOCK_RAW,
                              socket.IPPROTO_ICMP)

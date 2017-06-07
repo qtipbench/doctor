@@ -22,6 +22,7 @@ from oslo_config import cfg
 from osprofiler import web as osprofiler_web
 from osprofiler import initializer as osprofiler_initializer
 from osprofiler import opts as osprofiler_opts
+from osprofiler import profiler
 
 import identity_auth
 
@@ -51,6 +52,7 @@ class DoctorInspectorSample(object):
     # argument
 
     def __init__(self, conf):
+        self.conf = conf
         self.servers = collections.defaultdict(list)
         self.novaclients = list()
         self.preloaded = False
@@ -64,7 +66,7 @@ class DoctorInspectorSample(object):
         for i in range(self.NUMBER_OF_CLIENTS):
             self.novaclients.append(
                 novaclient.Client(self.NOVA_API_VERSION, session=sess,
-                                  connection_pool=True))
+                                  connection_pool=True, profile=self.conf.profiler.hmac_keys))
         # Normally we use this client for non redundant API calls
         self.nova=self.novaclients[0]
         self.nova.servers.list(detailed=False)
@@ -79,7 +81,7 @@ class DoctorInspectorSample(object):
             try:
                 host=server.__dict__.get('OS-EXT-SRV-ATTR:host')
                 self.servers[host].append(server)
-                LOG.debug('get hostname=%s from server=%s' % (host, server))
+                LOG.info('get hostname=%s from server=%s' % (host, server))
             except Exception as e:
                 LOG.error('can not get hostname from server=%s' % server)
 
@@ -109,14 +111,14 @@ def event_posted():
     LOG.info('event posted at %s' % time.time())
     LOG.info('inspector = %s' % inspector)
     LOG.info('received data = %s' % request.data)
-    # if not inspector.preloaded:
-    #     inspector.preload()
+    if not inspector.preloaded:
+        inspector.preload()
     d = json.loads(request.data)
-    # for event in d:
-    #     hostname = event['details']['hostname']
-    #     event_type = event['type']
-    #     if event_type == 'compute.host.down':
-    #         inspector.disable_compute_host(hostname)
+    for event in d:
+        hostname = event['details']['hostname']
+        event_type = event['type']
+        if event_type == 'compute.host.down':
+            inspector.disable_compute_host(hostname)
     return "OK"
 
 
@@ -134,17 +136,20 @@ def main():
     conf.register_cli_opts(OPTS)
     osprofiler_opts.set_defaults(conf)
     conf(sys.argv[1:], default_config_files=['doctor.conf'])
-    inspector = DoctorInspectorSample(conf)
-
     if conf.profiler.enabled:
         osprofiler_initializer.init_from_conf(conf=conf,
                                               context={}, # TODO(yujunz) context for requests
                                               project='doctor',
                                               service='monitor',
                                               host='tester')
+        profiler_middleware = osprofiler_web.WsgiMiddleware.factory(None,
+                                                                    hmac_keys=conf.profiler.hmac_keys,
+                                                                    enabled=True)
+	profiler.init(conf.profiler.hmac_keys)
+        app.wsgi_app = profiler_middleware(app.wsgi_app)
+        LOG.info("profiler enabled hmac_keys={}".format(conf.profiler.hmac_keys))
 
-    profiler_middleware = osprofiler_web.WsgiMiddleware.factory(None, hmac_keys='doctor', enabled=True)
-    app.wsgi_app = profiler_middleware(app.wsgi_app)
+    inspector = DoctorInspectorSample(conf)
     app.run(port=conf.port)
 
 
