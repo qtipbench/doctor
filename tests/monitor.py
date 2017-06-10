@@ -42,9 +42,9 @@ class DoctorMonitorSample(object):
 
     def __init__(self, conf):
         self.conf = conf
-        self.hostname = conf.hostname
+        self.hostname = conf.victim_hostname
         self.inspector_type = conf.inspector_type
-        self.ip_addr = conf.ip or socket.gethostbyname(self.hostname)
+        self.ip_addr = conf.victim_ip or socket.gethostbyname(conf.victim_hostname)
 
         if self.inspector_type == 'sample':
             self.inspector_url = conf.inspector_url
@@ -82,7 +82,7 @@ class DoctorMonitorSample(object):
                 return
             time.sleep(self.interval)
 
-    @profiler.trace('report')
+    @profiler.trace('report raw failure')
     def report_error(self):
         payload = [
             {
@@ -117,9 +117,9 @@ class DoctorMonitorSample(object):
 SUPPORTED_INSPECTOR_TYPES = ['sample', 'congress']
 
 OPTS = [
-    cfg.StrOpt('hostname',
+    cfg.StrOpt('victim-hostname',
                help='a hostname to monitor connectivity'),
-    cfg.StrOpt('ip',
+    cfg.StrOpt('victim-ip',
                help='an IP address to monitor connectivity'),
     cfg.StrOpt('inspector-type',
                default=os.getenv('INSPECTOR_TYPE', 'sample'),

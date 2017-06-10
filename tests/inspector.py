@@ -55,11 +55,7 @@ class DoctorInspectorSample(object):
         self.conf = conf
         self.servers = collections.defaultdict(list)
         self.novaclients = list()
-        self.preloaded = False
-        if conf.preload:
-            self.preload()
 
-    def preload(self):
         auth=identity_auth.get_identity_auth()
         sess=session.Session(auth=auth)
         # Pool of novaclients for redundant usage
@@ -71,7 +67,6 @@ class DoctorInspectorSample(object):
         self.nova=self.novaclients[0]
         self.nova.servers.list(detailed=False)
         self.init_servers_list()
-        self.preloaded = True
 
     def init_servers_list(self):
         opts = {'all_tenants': True}
@@ -85,19 +80,23 @@ class DoctorInspectorSample(object):
             except Exception as e:
                 LOG.error('can not get hostname from server=%s' % server)
 
+    @profiler.trace('inspector handle event')
     def disable_compute_host(self, hostname):
-        threads = []
-        if len(self.servers[hostname]) > self.NUMBER_OF_CLIENTS:
-            # TODO(tojuvone): This could be enhanced in future with dynamic
-            # reuse of self.novaclients when all threads in use
-            LOG.error('%d servers in %s. Can handle only %d'%(
-                      self.servers[hostname], hostname, self.NUMBER_OF_CLIENTS))
-        for nova, server in zip(self.novaclients, self.servers[hostname]):
-            t = ThreadedResetState(nova, "error", server)
-            t.start()
-            threads.append(t)
-        for t in threads:
-            t.join()
+        with profiler.Trace('reset server state',
+                            info={'host': hostname}):
+            threads = []
+            if len(self.servers[hostname]) > self.NUMBER_OF_CLIENTS:
+                # TODO(tojuvone): This could be enhanced in future with dynamic
+                # reuse of self.novaclients when all threads in use
+                LOG.error('%d servers in %s. Can handle only %d'%(
+                          self.servers[hostname], hostname, self.NUMBER_OF_CLIENTS))
+
+            for nova, server in zip(self.novaclients, self.servers[hostname]):
+                t = ThreadedResetState(nova, "error", server)
+                t.start()
+                threads.append(t)
+            for t in threads:
+                t.join()
         self.nova.services.force_down(hostname, 'nova-compute', True)
         LOG.info('doctor mark host(%s) down at %s' % (hostname, time.time()))
 
@@ -111,8 +110,6 @@ def event_posted():
     LOG.info('event posted at %s' % time.time())
     LOG.info('inspector = %s' % inspector)
     LOG.info('received data = %s' % request.data)
-    if not inspector.preloaded:
-        inspector.preload()
     d = json.loads(request.data)
     for event in d:
         hostname = event['details']['hostname']
@@ -122,11 +119,17 @@ def event_posted():
     return "OK"
 
 
+@app.route('/failure', methods=['POST'])
+def consumer_notified():
+    with profiler.Trace('consumer notified'):
+        LOG.info('doctor consumer notified at %s' % time.time())
+    LOG.info('received data = %s' % request.data)
+
+    return "OK"
+
 OPTS = [
-    cfg.IntOpt('port',
-               help='http server port'),
-    cfg.BoolOpt('preload',
-                help='enable server list preloading')
+    cfg.IntOpt('inspector-port',
+               help='http server port')
 ]
 
 
@@ -136,6 +139,7 @@ def main():
     conf.register_cli_opts(OPTS)
     osprofiler_opts.set_defaults(conf)
     conf(sys.argv[1:], default_config_files=['doctor.conf'])
+
     if conf.profiler.enabled:
         osprofiler_initializer.init_from_conf(conf=conf,
                                               context={}, # TODO(yujunz) context for requests
@@ -145,12 +149,11 @@ def main():
         profiler_middleware = osprofiler_web.WsgiMiddleware.factory(None,
                                                                     hmac_keys=conf.profiler.hmac_keys,
                                                                     enabled=True)
-	profiler.init(conf.profiler.hmac_keys)
         app.wsgi_app = profiler_middleware(app.wsgi_app)
         LOG.info("profiler enabled hmac_keys={}".format(conf.profiler.hmac_keys))
 
     inspector = DoctorInspectorSample(conf)
-    app.run(port=conf.port)
+    app.run(host='0.0.0.0', port=conf.inspector_port)
 
 
 if __name__ == '__main__':
