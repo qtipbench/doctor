@@ -12,7 +12,9 @@ from flask import Flask
 from flask import request
 import json
 import logger as doctor_log
+import sys
 import time
+from oslo_config import cfg
 
 LOG = doctor_log.Logger('doctor_consumer').getLogger()
 
@@ -28,6 +30,11 @@ def event_posted():
     return "OK"
 
 
+OPTS = [
+    cfg.IntOpt('port',
+               help='http server port')
+]
+
 def get_args():
     parser = argparse.ArgumentParser(description='Doctor Sample Consumer')
     parser.add_argument('port', metavar='PORT', type=int, nargs='?',
@@ -36,8 +43,10 @@ def get_args():
 
 
 def main():
-    args = get_args()
-    app.run(host="0.0.0.0", port=args.port)
+    conf = cfg.ConfigOpts()
+    conf.register_cli_opts(OPTS, group='consumer')
+    conf(sys.argv[1:], default_config_files=['doctor.conf'])
+    app.run(host="0.0.0.0", port=conf.consumer.port)
 
 
 if __name__ == '__main__':

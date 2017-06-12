@@ -42,12 +42,12 @@ class DoctorMonitorSample(object):
 
     def __init__(self, conf):
         self.conf = conf
-        self.hostname = conf.victim_hostname
-        self.inspector_type = conf.inspector_type
-        self.ip_addr = conf.victim_ip or socket.gethostbyname(conf.victim_hostname)
+        self.hostname = conf.monitor.victim_hostname
+        self.inspector_type = conf.monitor.inspector_type
+        self.ip_addr = conf.monitor.victim_ip or socket.gethostbyname(conf.monitor.victim_hostname)
 
         if self.inspector_type == 'sample':
-            self.inspector_url = conf.inspector_url
+            self.inspector_url = conf.monitor.inspector_url
         elif self.inspector_type == 'congress':
             auth=identity_auth.get_identity_auth()
             self.session=session.Session(auth=auth)
@@ -133,7 +133,7 @@ OPTS = [
 def main():
 
     conf = cfg.ConfigOpts()
-    conf.register_cli_opts(OPTS)
+    conf.register_cli_opts(OPTS, group='monitor')
     osprofiler_opts.set_defaults(conf)
     conf(sys.argv[1:], default_config_files=['doctor.conf'])
     if conf.profiler.enabled:

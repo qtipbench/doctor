@@ -119,16 +119,8 @@ def event_posted():
     return "OK"
 
 
-@app.route('/failure', methods=['POST'])
-def consumer_notified():
-    with profiler.Trace('consumer notified'):
-        LOG.info('doctor consumer notified at %s' % time.time())
-    LOG.info('received data = %s' % request.data)
-
-    return "OK"
-
 OPTS = [
-    cfg.IntOpt('inspector-port',
+    cfg.IntOpt('port',
                help='http server port')
 ]
 
@@ -136,7 +128,7 @@ OPTS = [
 def main():
     global inspector
     conf = cfg.ConfigOpts()
-    conf.register_cli_opts(OPTS)
+    conf.register_cli_opts(OPTS, group='inspector')
     osprofiler_opts.set_defaults(conf)
     conf(sys.argv[1:], default_config_files=['doctor.conf'])
 
@@ -153,7 +145,7 @@ def main():
         LOG.info("profiler enabled hmac_keys={}".format(conf.profiler.hmac_keys))
 
     inspector = DoctorInspectorSample(conf)
-    app.run(host='0.0.0.0', port=conf.inspector_port)
+    app.run(port=conf.inspector.port)
 
 
 if __name__ == '__main__':
